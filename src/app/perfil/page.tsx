@@ -13,7 +13,7 @@ export default function ProfilePage() {
     router.push("/login?next=/perfil");
   }
 
-  const name = user?.displayName || "Cliente M&B CELULARES";
+  const name = (user as any)?.displayName || "Cliente M&B CELULARES";
   const email = user?.email || "cliente@email.com";
 
   return (
