@@ -14,7 +14,7 @@ export default function ProfilePage() {
   }
 
   const name = (user as any)?.displayName || "Cliente M&B CELULARES";
-  const email = user?.email || "cliente@email.com";
+  const email = (user as any)?.email || "cliente@email.com";
 
   return (
     <section className="bg-cloud py-14">
