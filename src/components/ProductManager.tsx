@@ -1,15 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { db, storage } from "@/lib/firebase";
-import {
-  collection,
-  onSnapshot,
-  doc,
-  deleteDoc,
-  updateDoc,
-} from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { supabase, uploadLojaMedia } from "@/lib/supabase";
 import imageCompression from "browser-image-compression";
 import { Product } from "@/lib/products";
 import { Edit, Trash2, X } from "lucide-react";
@@ -45,23 +37,48 @@ export default function ProductManager() {
 
   const [saving, setSaving] = useState(false);
 
-  // Opções de compressão de imagem
   const compressionOptions = {
     maxSizeMB: 1,
     maxWidthOrHeight: 1200,
     useWebWorker: true,
   };
 
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, "products"), (snapshot) => {
-      const list: Product[] = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      })) as Product[];
-      setProducts(list);
-    });
+  async function loadProducts() {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from("products")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-    return () => unsub();
+    if (error) {
+      console.error("Erro ao carregar produtos:", error);
+      return;
+    }
+
+    setProducts((data as Product[]) || []);
+  }
+
+  useEffect(() => {
+    loadProducts();
+
+    const client = supabase;
+    if (!client) return;
+
+    // Escuta mudanças na tabela products em tempo real
+    const channel = client
+      .channel("products-admin-changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "products" },
+        () => {
+          loadProducts();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      client.removeChannel(channel);
+    };
   }, []);
 
   function openEditModal(product: Product) {
@@ -74,19 +91,18 @@ export default function ProductManager() {
     setEditWarranty(product.warranty || "1 ano");
     setEditStock(String(product.stock ?? 10));
 
-    // Carregar novos campos
     setEditProcessor(product.processor || "");
     setEditPerformance(product.performance || "");
     setEditCamera(product.camera || "");
     setEditScreen(product.screen || "");
     setEditBattery(product.battery || "");
 
-    // Carregar fotos existentes (garante array de 4 posições)
-    const imgs = product.images && product.images.length > 0
-      ? product.images
-      : product.image
-      ? [product.image]
-      : [];
+    const imgs =
+      product.images && product.images.length > 0
+        ? product.images
+        : product.image
+        ? [product.image]
+        : [];
     setExistingImages(imgs);
     setNewImageFiles([null, null, null, null]);
   }
@@ -99,7 +115,7 @@ export default function ProductManager() {
 
   async function handleUpdateProduct(e: React.FormEvent) {
     e.preventDefault();
-    if (!editingProduct) return;
+    if (!editingProduct || !supabase) return;
 
     setSaving(true);
 
@@ -111,55 +127,41 @@ export default function ProductManager() {
         const file = newImageFiles[i];
         if (file) {
           const compressed = await imageCompression(file, compressionOptions);
-          const storageRef = ref(
-            storage,
-            `products/${Date.now()}_${i}_${file.name}`
-          );
-          const uploadTask = uploadBytesResumable(storageRef, compressed);
-
-          const url = await new Promise<string>((resolve, reject) => {
-            uploadTask.on(
-              "state_changed",
-              null,
-              (err) => reject(err),
-              async () => {
-                const downloadUrl = await getDownloadURL(
-                  uploadTask.snapshot.ref
-                );
-                resolve(downloadUrl);
-              }
-            );
-          });
-
+          const url = await uploadLojaMedia(compressed, "products");
           finalImages[i] = url;
         }
       }
 
-      // Filtra fotos válidas para não ficar buraco no array
       const validImages = finalImages.filter((img) => Boolean(img));
       const mainImage = validImages[0] || editingProduct.image || "";
 
-      const docRef = doc(db, "products", editingProduct.id);
+      const { error } = await supabase
+        .from("products")
+        .update({
+          name: editName,
+          price: Number(editPrice),
+          storage: editStorage,
+          color: editColor,
+          state: editState,
+          warranty: editWarranty,
+          stock: Number(editStock),
+          processor: editProcessor,
+          performance: editPerformance,
+          camera: editCamera,
+          screen: editScreen,
+          battery: editBattery,
+          image: mainImage,
+          images: validImages,
+        })
+        .eq("id", editingProduct.id);
 
-      await updateDoc(docRef, {
-        name: editName,
-        price: Number(editPrice),
-        storage: editStorage,
-        color: editColor,
-        state: editState,
-        warranty: editWarranty,
-        stock: Number(editStock),
-        processor: editProcessor,
-        performance: editPerformance,
-        camera: editCamera,
-        screen: editScreen,
-        battery: editBattery,
-        image: mainImage,
-        images: validImages,
-      });
+      if (error) {
+        throw error;
+      }
 
       alert("Produto atualizado com sucesso!");
       setEditingProduct(null);
+      loadProducts();
     } catch (error) {
       console.error(error);
       alert("Erro ao atualizar o produto.");
@@ -169,9 +171,12 @@ export default function ProductManager() {
   }
 
   async function handleDeleteProduct(id: string) {
+    if (!supabase) return;
     if (confirm("Tem certeza que deseja excluir este produto?")) {
       try {
-        await deleteDoc(doc(db, "products", id));
+        const { error } = await supabase.from("products").delete().eq("id", id);
+        if (error) throw error;
+        loadProducts();
       } catch (error) {
         console.error(error);
         alert("Erro ao excluir produto.");
@@ -191,11 +196,17 @@ export default function ProductManager() {
             className="border p-4 rounded-lg flex flex-col justify-between"
           >
             <div>
-              <img
-                src={item.image}
-                alt={item.name}
-                className="w-full h-32 object-contain mb-2 rounded"
-              />
+              {item.image ? (
+                <img
+                  src={item.image}
+                  alt={item.name}
+                  className="w-full h-32 object-contain mb-2 rounded"
+                />
+              ) : (
+                <div className="w-full h-32 bg-gray-100 mb-2 rounded flex items-center justify-center text-xs text-gray-400">
+                  Sem foto
+                </div>
+              )}
               <h3 className="font-bold text-sm">{item.name}</h3>
               <p className="text-xs text-gray-500">
                 R$ {item.price} | {item.storage}
@@ -424,7 +435,6 @@ export default function ProductManager() {
                 </div>
               </div>
 
-              {/* Botão idêntico ao original (Coral) */}
               <button
                 type="submit"
                 disabled={saving}

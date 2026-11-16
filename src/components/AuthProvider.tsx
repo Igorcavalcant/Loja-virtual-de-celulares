@@ -4,23 +4,19 @@ import {
   createContext,
   useContext,
   useEffect,
-  useMemo,
   useState,
-  type ReactNode
+  type ReactNode,
 } from "react";
-import {
-  createUserWithEmailAndPassword,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signOut,
-  type User
-} from "firebase/auth";
-import { getFirebaseAuth, googleProvider, hasFirebaseConfig } from "@/lib/firebase";
+import type { User } from "@supabase/supabase-js";
+import { supabase, hasSupabaseConfig } from "@/lib/supabase";
 
 type DemoUser = {
-  displayName: string;
+  displayName?: string;
   email: string;
+  user_metadata?: {
+    full_name?: string;
+    avatar_url?: string;
+  };
 };
 
 type AuthContextValue = {
@@ -38,73 +34,115 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | DemoUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const auth = useMemo(() => getFirebaseAuth(), []);
-  const isDemoMode = !hasFirebaseConfig || !auth;
-  const adminEmails = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || "")
-  .split(",")
-  .map((email) => email.trim().toLowerCase())
-  .filter(Boolean);
 
-const isAdmin = Boolean(
-  user?.email && adminEmails.includes(user.email.toLowerCase())
-);
+  const isDemoMode = !hasSupabaseConfig || !supabase;
+
+  const adminEmails = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+
+  const isAdmin = Boolean(
+    user?.email && adminEmails.includes(user.email.toLowerCase())
+  );
 
   useEffect(() => {
-    if (!auth) {
+    if (!supabase) {
       const saved = window.localStorage.getItem("iduu-demo-user");
       setUser(saved ? JSON.parse(saved) : null);
       setLoading(false);
       return;
     }
 
-    return onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
+    // Carrega sessão inicial
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
       setLoading(false);
     });
-  }, [auth]);
+
+    // Escuta mudanças de login/logout em tempo real
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   async function loginWithEmail(email: string, password: string) {
-    if (!auth) {
-      const demoUser = { displayName: "Cliente M%B CELULARES", email };
+    if (!supabase) {
+      const demoUser = { displayName: "Cliente M&B CELULARES", email };
       window.localStorage.setItem("iduu-demo-user", JSON.stringify(demoUser));
       setUser(demoUser);
       return;
     }
 
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch {
-      await createUserWithEmailAndPassword(auth, email, password);
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    // Se a conta ainda não existir, cria automaticamente
+    if (signInError) {
+      const { error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+      if (signUpError) {
+        throw signUpError;
+      }
     }
   }
 
   async function loginWithGoogle() {
-    if (!auth) {
+    if (!supabase) {
       const demoUser = {
         displayName: "Cliente Google",
-        email: "cliente@exemplo.com"
+        email: "cliente@exemplo.com",
       };
       window.localStorage.setItem("iduu-demo-user", JSON.stringify(demoUser));
       setUser(demoUser);
       return;
     }
 
-    await signInWithPopup(auth, googleProvider);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/`,
+      },
+    });
+
+    if (error) {
+      throw error;
+    }
   }
 
   async function logout() {
-    if (!auth) {
+    if (!supabase) {
       window.localStorage.removeItem("iduu-demo-user");
       setUser(null);
       return;
     }
 
-    await signOut(auth);
+    await supabase.auth.signOut();
+    setUser(null);
   }
 
   return (
     <AuthContext.Provider
-    value={{ user, loading, isDemoMode, isAdmin, loginWithEmail, loginWithGoogle, logout }}
+      value={{
+        user,
+        loading,
+        isDemoMode,
+        isAdmin,
+        loginWithEmail,
+        loginWithGoogle,
+        logout,
+      }}
     >
       {children}
     </AuthContext.Provider>

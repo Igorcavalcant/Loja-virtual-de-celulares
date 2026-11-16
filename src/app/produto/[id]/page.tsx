@@ -20,25 +20,26 @@ import {
 
 import { BuyButton } from "@/components/BuyButton";
 import { formatPrice, type Product } from "@/lib/products";
-import { db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { supabase } from "@/lib/supabase";
 
 // ==========================================================
-// BUSCA PRODUTO NO FIREBASE PELO ID
+// BUSCA PRODUTO NO SUPABASE PELO ID
 // ==========================================================
 async function getProductById(id: string): Promise<Product | null> {
-  try {
-    const productRef = doc(db, "products", id);
-    const snapshot = await getDoc(productRef);
+  if (!supabase) return null;
 
-    if (!snapshot.exists()) {
+  try {
+    const { data, error } = await supabase
+      .from("products")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (error || !data) {
       return null;
     }
 
-    return {
-      id: snapshot.id,
-      ...snapshot.data(),
-    } as Product;
+    return data as Product;
   } catch (error) {
     console.error("Erro ao buscar produto:", error);
     return null;
@@ -53,7 +54,6 @@ export default function ProductDetailsPage({
 }: {
   params: { id: string };
 }) {
-  // No Next.js 14, acessamos o params diretamente!
   const { id } = params;
 
   const [product, setProduct] = useState<Product | null>(null);
@@ -90,7 +90,9 @@ export default function ProductDetailsPage({
   const productGallery =
     product.images && product.images.length > 0
       ? product.images
-      : [product.image];
+      : product.image
+      ? [product.image]
+      : [];
 
   // Especificações dinâmicas
   const specItems = [
@@ -140,11 +142,15 @@ export default function ProductDetailsPage({
               onClick={() => setIsFullScreen(true)}
               className="relative aspect-[4/3] bg-white flex items-center justify-center p-4 cursor-zoom-in group"
             >
-              <img
-                src={selectedImage || product.image}
-                alt={product.name}
-                className="h-full w-full object-contain transition duration-300 group-hover:scale-105"
-              />
+              {(selectedImage || product.image) ? (
+                <img
+                  src={selectedImage || product.image}
+                  alt={product.name}
+                  className="h-full w-full object-contain transition duration-300 group-hover:scale-105"
+                />
+              ) : (
+                <span className="text-sm text-gray-400">Sem imagem</span>
+              )}
               <div className="absolute top-3 right-3 bg-black/50 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition">
                 <Maximize2 size={16} />
               </div>
@@ -237,7 +243,7 @@ export default function ProductDetailsPage({
       </div>
 
       {/* MODAL TELA CHEIA (LIGHTBOX) */}
-      {isFullScreen && (
+      {isFullScreen && (selectedImage || product.image) && (
         <div
           onClick={() => setIsFullScreen(false)}
           className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm"

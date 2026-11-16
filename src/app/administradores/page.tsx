@@ -6,24 +6,9 @@ import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/AuthProvider";
 import ProductManager from "@/components/ProductManager";
+import { supabase, uploadLojaMedia } from "@/lib/supabase";
 
-import { db, storage } from "@/lib/firebase";
-
-import {
-  collection,
-  addDoc,
-} from "firebase/firestore";
-
-import {
-  ref,
-  uploadBytesResumable,
-  getDownloadURL,
-} from "firebase/storage";
-
-import {
-  LogOut,
-} from "lucide-react";
-
+import { LogOut } from "lucide-react";
 import imageCompression from "browser-image-compression";
 
 export default function AdminPage() {
@@ -56,7 +41,7 @@ export default function AdminPage() {
     useWebWorker: true,
   };
 
-  // Envio de Produto
+  // Envio de Produto para o Supabase
   async function handleSaveProduct(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
@@ -66,36 +51,25 @@ export default function AdminPage() {
       return;
     }
 
+    if (!supabase) {
+      alert("Supabase não está configurado. Verifique o .env.local.");
+      return;
+    }
+
     setLoadingProd(true);
-    setProdProgress(0);
+    setProdProgress(20);
 
     try {
       let imageUrl = "";
 
       if (prodImage) {
         const compressedFile = await imageCompression(prodImage, compressionOptions);
-        const storageRef = ref(storage, `products/${Date.now()}_${prodImage.name}`);
-        const uploadTask = uploadBytesResumable(storageRef, compressedFile);
-
-        imageUrl = await new Promise<string>((resolve, reject) => {
-          uploadTask.on(
-            "state_changed",
-            (snapshot) => {
-              const progress = Math.round(
-                (snapshot.bytesTransferred / snapshot.totalBytes) * 100
-              );
-              setProdProgress(progress);
-            },
-            (error) => reject(error),
-            async () => {
-              const url = await getDownloadURL(uploadTask.snapshot.ref);
-              resolve(url);
-            }
-          );
-        });
+        setProdProgress(60);
+        imageUrl = await uploadLojaMedia(compressedFile, "products");
+        setProdProgress(85);
       }
 
-      await addDoc(collection(db, "products"), {
+      const { error } = await supabase.from("products").insert({
         name: prodName,
         price: Number(prodPrice),
         storage: prodStorage,
@@ -110,9 +84,13 @@ export default function AdminPage() {
         battery: prodBattery,
         image: imageUrl,
         images: imageUrl ? [imageUrl] : [],
-        createdAt: new Date(),
       });
 
+      if (error) {
+        throw error;
+      }
+
+      setProdProgress(100);
       alert("Produto cadastrado com sucesso!");
 
       setProdName("");
@@ -142,9 +120,7 @@ export default function AdminPage() {
   if (loading) {
     return (
       <section className="bg-cloud py-14">
-        <div className="container-pad text-center">
-          Carregando painel...
-        </div>
+        <div className="container-pad text-center">Carregando painel...</div>
       </section>
     );
   }
@@ -169,9 +145,7 @@ export default function AdminPage() {
     <section className="bg-cloud py-14">
       <div className="container-pad">
         <div className="flex items-center justify-between mb-8">
-          <h1 className="text-4xl font-black text-ink">
-            Controle da loja
-          </h1>
+          <h1 className="text-4xl font-black text-ink">Controle da loja</h1>
           <button
             onClick={() => logout()}
             className="flex items-center gap-2 text-sm text-gray-600 hover:text-red-600 transition"
@@ -180,7 +154,7 @@ export default function AdminPage() {
           </button>
         </div>
 
-        {/* APENAS O FORMULÁRIO DE PRODUTO NO TOPO */}
+        {/* FORMULÁRIO DE PRODUTO NO TOPO */}
         <div className="max-w-2xl mb-10">
           <div className="rounded-md bg-white p-6 shadow-sm">
             <h2 className="text-xl font-black mb-4">Novo Produto</h2>

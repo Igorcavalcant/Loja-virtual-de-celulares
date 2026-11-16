@@ -1,4 +1,5 @@
-import { Instagram, Mail, MessageCircle, ShieldCheck } from "lucide-react";
+import Link from "next/link";
+import { ArrowUpRight, Instagram, ShieldCheck } from "lucide-react";
 
 export function Footer() {
   return (
@@ -30,16 +31,24 @@ export function Footer() {
           <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-white/60">
             Contato
           </h3>
-          <div className="flex gap-3">
-            <span className="grid h-10 w-10 place-items-center rounded-md bg-white/10">
-              <MessageCircle size={18} />
-            </span>
-            <span className="grid h-10 w-10 place-items-center rounded-md bg-white/10">
+          <div className="flex flex-wrap items-center gap-3">
+            <a
+              href="https://instagram.com/tenica.mb?xtok=MWQ4eGwzNzVraXhxcw=="
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Instagram M&B Celulares"
+              className="grid h-10 w-10 place-items-center rounded-md bg-white/10 text-white transition hover:bg-coral"
+            >
               <Instagram size={18} />
-            </span>
-            <span className="grid h-10 w-10 place-items-center rounded-md bg-white/10">
-              <Mail size={18} />
-            </span>
+            </a>
+
+            <Link
+              href="https://wa.me/5514991657511"
+              className="inline-flex h-10 items-center gap-1.5 rounded-md bg-coral px-4 text-xs font-black uppercase tracking-wide text-white transition hover:bg-coral/90"
+            >
+              Fale Conosco
+              <ArrowUpRight size={15} />
+            </Link>
           </div>
         </div>
       </div>
