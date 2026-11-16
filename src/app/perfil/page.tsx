@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MapPin, PackageCheck, Phone, UserRound, Settings } from "lucide-react"; // Adicionei o ícone Settings
+import { MapPin, PackageCheck, Phone, UserRound, Settings } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user, logout, loading, isAdmin } = useAuth(); // Importando o isAdmin aqui
+  const { user, logout, loading, isAdmin } = useAuth();
 
   if (!loading && !user) {
     router.push("/login?next=/perfil");
@@ -27,9 +27,7 @@ export default function ProfilePage() {
             <h1 className="text-4xl font-black text-ink">Olá, {name}</h1>
           </div>
           
-          {/* Grupo de botões na direita */}
           <div className="flex gap-3">
-            {/* O BOTÃO SECRETO DO ADM APARECE AQUI SE FOR O DONO DA LOJA */}
             {isAdmin && (
               <Link
                 href="/administradores"
